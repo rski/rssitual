@@ -23,11 +23,17 @@ fn get_paths<'a>() -> Vec<Box<Path>> {
 }
 
 fn get_valid_exts<'a>() -> Vec<&'a str> {
-    vec![".org", ".vimwiki", ".txt"]
+    vec!["org", "vimwiki", "txt", "wiki"]
 }
 
 fn process_entry(p: &Path, _valid_exts: &Vec<&str>) {
-    dbg!(p);
+    if !_valid_exts.iter().any(|&x| match p.extension() {
+        None => false,
+        Some(ext) => ext.to_str() == Some(x),
+    }) {
+        return;
+    }
+    println!("{:?}", p.to_str());
 }
 
 fn walk_dirs(dirs: &Vec<Box<Path>>, valid_exts: &Vec<&str>) -> io::Result<()> {
@@ -36,7 +42,6 @@ fn walk_dirs(dirs: &Vec<Box<Path>>, valid_exts: &Vec<&str>) -> io::Result<()> {
     }
     let mut rec: Vec<Box<Path>> = Vec::<Box<Path>>::new();
     for dir in dirs {
-        dbg!(dir);
         if !Path::is_dir(dir) {
             continue;
         }
