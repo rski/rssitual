@@ -1,18 +1,54 @@
-use std::{io, path::Path};
+use chrono::prelude::*;
+use std::{
+    fs::File,
+    io::{self, Read},
+    path::Path,
+};
 
 use rss::{Channel, Item};
 
-fn main() {
+#[derive(Clone, Debug, PartialEq)]
+enum State {
+    Read,
+    Unread,
+}
+
+#[derive(Debug)]
+struct Link {
+    url: String,
+    tags: Vec<String>,
+    state: State,
+    date: String,
+    title: Option<String>,
+}
+
+fn main() -> std::io::Result<()> {
     let _paths = get_paths();
     let _exts = get_valid_exts();
-    let mut ar = Item::default();
-    ar.set_author(String::from("foo"));
 
+    let mut links = Vec::<Link>::new();
+    walk_dirs(&get_paths(), &get_valid_exts(), &mut links)?;
+    write_out_file(links);
+    Ok(())
+}
+
+fn write_out_file(links: Vec<Link>) {
     let mut ch = Channel::default();
-    ch.set_items(vec![ar]);
-    ch.pretty_write_to(io::stdout(), b' ', 2).unwrap();
+    ch.set_title("local channel");
+    let mut items = vec![];
+    for l in links {
+        if l.state == State::Read {
+            continue;
+        }
+        let mut i = Item::default();
 
-    walk_dirs(&get_paths(), &get_valid_exts()).unwrap();
+        i.set_link(l.url);
+        i.set_title(l.title.unwrap_or(String::from("")));
+        i.set_pub_date(l.date);
+        items.push(i);
+    }
+    ch.set_items(items);
+    ch.pretty_write_to(io::stdout(), b' ', 2).unwrap();
 }
 
 fn get_paths<'a>() -> Vec<Box<Path>> {
@@ -33,12 +69,60 @@ fn interesting_file(p: &Path, _valid_exts: &Vec<&str>) -> bool {
     })
 }
 
-fn process_entry(_p: &Path) -> io::Result<()> {
-    dbg!(&_p);
+fn process_entry(_p: &Path, links: &mut Vec<Link>) -> io::Result<()> {
+    let mut f = File::open(_p)?;
+    let mut buf = String::new();
+    f.read_to_string(&mut buf)?;
+    let mut date: Option<DateTime<Utc>> = None;
+    let mut state = State::Read;
+    for l in buf.lines() {
+        if l.starts_with("[[") {
+            let l = l.strip_prefix("[[").unwrap().strip_suffix("]]").unwrap();
+            let link = produce_link(l, &date, &state);
+            links.push(link);
+        } else if l.starts_with("http") {
+            let link = produce_link(l, &date, &state);
+            links.push(link);
+        } else if l.starts_with("read") {
+            state = State::Read;
+        } else if l.starts_with("unread") {
+            state = State::Unread;
+        } else if !l.is_empty() {
+            // Nov 28 12:00:09", "%a %b %e %T %Y"
+            let s = format!("{} 09:00:00 2021", l.trim());
+            match Utc.datetime_from_str(&s, "%e %B %T %Y") {
+                Err(e) => panic!("{}:{}", s, e),
+                Ok(v) => date = Some(v),
+            }
+            state = State::Read; // new day implies read, if not it'll be written down
+        }
+    }
     Ok(())
 }
 
-fn walk_dirs(dirs: &Vec<Box<Path>>, valid_exts: &Vec<&str>) -> io::Result<()> {
+fn produce_link(s: &str, date: &Option<DateTime<Utc>>, state: &State) -> Link {
+    let mut it = s.splitn(2, ' ');
+    let url = it.next().unwrap().to_owned();
+    let title = match it.next() {
+        None => None,
+        Some(x) => Some(x.to_owned()),
+    };
+    Link {
+        url: url,
+        title: title,
+        tags: vec![],
+        date: date
+            .clone()
+            .unwrap_or(Utc.ymd(2014, 11, 28).and_hms(12, 0, 9))
+            .to_rfc2822(),
+        state: state.clone(),
+    }
+}
+fn walk_dirs(
+    dirs: &Vec<Box<Path>>,
+    valid_exts: &Vec<&str>,
+    links: &mut Vec<Link>,
+) -> io::Result<()> {
     if dirs.is_empty() {
         return Ok(());
     }
@@ -60,11 +144,11 @@ fn walk_dirs(dirs: &Vec<Box<Path>>, valid_exts: &Vec<&str>) -> io::Result<()> {
                     if !interesting_file(&p, &valid_exts) {
                         continue;
                     }
-                    process_entry(&p)?;
+                    process_entry(&p, links)?;
                 }
             };
         }
     }
-    walk_dirs(&rec, valid_exts)?;
+    walk_dirs(&rec, valid_exts, links)?;
     Ok(())
 }
