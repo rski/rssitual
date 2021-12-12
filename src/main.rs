@@ -19,7 +19,38 @@ struct Link {
     tags: Vec<String>,
     state: State,
     date: String,
-    title: Option<String>,
+}
+
+impl Link {
+    fn fetch_title(&self) -> Option<String> {
+        let r = reqwest::blocking::get(&self.url);
+        match r {
+            Err(e) => {
+                eprintln!("error fetching {}: {}", self.url, e);
+                None
+            }
+            Ok(r) => {
+                if !r.status().is_success() {
+                    eprintln!("error fetching {}: {}", self.url, r.status());
+                    return None;
+                }
+                if !r.status().is_success() {
+                    eprintln!("error fetching {}: {}", self.url, r.status());
+                    return None;
+                }
+                let d = select::document::Document::from_read(r).unwrap();
+                let title = d
+                    .find(select::predicate::Name("title"))
+                    .next()
+                    .unwrap()
+                    .children()
+                    .next()
+                    .unwrap()
+                    .text();
+                Some(title)
+            }
+        }
+    }
 }
 
 fn main() -> std::io::Result<()> {
@@ -42,8 +73,8 @@ fn write_out_file(links: Vec<Link>) {
         }
         let mut i = Item::default();
 
+        i.set_title(l.fetch_title());
         i.set_link(l.url);
-        i.set_title(l.title.unwrap_or(String::from("")));
         i.set_pub_date(l.date);
         items.push(i);
     }
@@ -103,13 +134,9 @@ fn process_entry(_p: &Path, links: &mut Vec<Link>) -> io::Result<()> {
 fn produce_link(s: &str, date: &Option<DateTime<Utc>>, state: &State) -> Link {
     let mut it = s.splitn(2, ' ');
     let url = it.next().unwrap().to_owned();
-    let title = match it.next() {
-        None => None,
-        Some(x) => Some(x.to_owned()),
-    };
     Link {
-        url: url,
-        title: title,
+        // some lines have dots but those are not really part of the url
+        url: url.strip_suffix('.').unwrap_or(&url).to_owned(),
         tags: vec![],
         date: date
             .clone()
