@@ -34,20 +34,23 @@ impl Link {
                     eprintln!("error fetching {}: {}", self.url, r.status());
                     return None;
                 }
-                if !r.status().is_success() {
-                    eprintln!("error fetching {}: {}", self.url, r.status());
-                    return None;
+                match select::document::Document::from_read(r) {
+                    Err(e) => {
+                        eprintln!("error decoding {}: {}", self.url, e);
+                        None
+                    }
+                    Ok(d) => {
+                        let title = d
+                            .find(select::predicate::Name("title"))
+                            .next()
+                            .unwrap()
+                            .children()
+                            .next()
+                            .unwrap()
+                            .text();
+                        Some(title)
+                    }
                 }
-                let d = select::document::Document::from_read(r).unwrap();
-                let title = d
-                    .find(select::predicate::Name("title"))
-                    .next()
-                    .unwrap()
-                    .children()
-                    .next()
-                    .unwrap()
-                    .text();
-                Some(title)
             }
         }
     }
