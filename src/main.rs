@@ -23,6 +23,10 @@ struct Link {
 
 impl Link {
     fn fetch_title(&self) -> Option<String> {
+        if self.url.ends_with(".pdf") {
+            return Some(self.url.to_owned());
+        }
+        eprintln!("fetching {}...", self.url);
         let r = reqwest::blocking::get(&self.url);
         match r {
             Err(e) => {
@@ -48,7 +52,7 @@ impl Link {
                             .next()
                             .unwrap()
                             .text();
-                        Some(title)
+                        Some(title.trim().to_string())
                     }
                 }
             }
